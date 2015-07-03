@@ -20,6 +20,7 @@
  */
 package org.grouplens.lenskit.mf.svdpp;
 
+import org.apache.commons.math3.stat.StatUtils;
 import org.apache.commons.math3.linear.RealVector;
 import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.linear.MatrixUtils;
@@ -213,17 +214,10 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
      * @param fib  The feature info builder.
      */
     protected void summarizeFeature(RealVector ufv, RealVector ifv, FeatureInfo.Builder fib) {
-        fib.setUserAverage(realVectorSum(ufv) / ufv.getDimension())
-           .setItemAverage(realVectorSum(ifv) / ifv.getDimension())
-           .setSingularValue(ufv.getNorm() * ifv.getNorm());
-    }
+        StatUtils.sum(ifv.toArray());
 
-    // TODO Find a better solution than this
-    private double realVectorSum (RealVector rv){
-        double total = 0;
-        for (double i : rv.toArray()){
-            total += i;
-        }
-        return total;
+        fib.setUserAverage(StatUtils.sum(ufv.toArray()) / ufv.getDimension())
+           .setItemAverage(StatUtils.sum(ifv.toArray()) / ifv.getDimension())
+           .setSingularValue(ufv.getNorm() * ifv.getNorm());
     }
 }
