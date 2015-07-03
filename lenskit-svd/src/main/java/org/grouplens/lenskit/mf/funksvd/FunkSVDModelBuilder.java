@@ -94,7 +94,7 @@ public class FunkSVDModelBuilder implements Provider<FunkSVDModel> {
         // Use scratch vectors for each feature for better cache locality
         // Per-feature vectors are strided in the output matrices
         RealVector uvec = MatrixUtils.createRealVector(new double [userCount]);
-        RealVector ivec = MatrixUtils.createRealVector(new double[itemCount]);
+        RealVector ivec = MatrixUtils.createRealVector(new double [itemCount]);
 
         for (int f = 0; f < featureCount; f++) {
             logger.debug("Training feature {}", f);

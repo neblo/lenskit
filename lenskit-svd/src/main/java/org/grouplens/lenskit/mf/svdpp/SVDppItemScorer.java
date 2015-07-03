@@ -212,12 +212,13 @@ public class SVDppItemScorer extends AbstractItemScorer {
         for (VectorEntry e: ratings) {
             final long iid = e.getKey();
             final RealVector ivec = model.getItemVector(iid);
+            final RealVector nvec = model.getImplicitFeedbackVector(user);
             if (ivec == null) {
                 continue;
             }
 
             updater.prepare(feature, e.getValue(), estimates.get(iid),
-                            uprefs.getEntry(feature), ivec.getEntry(feature), itemTails.get(iid));
+                            uprefs.getEntry(feature), ivec.getEntry(feature), nvec, itemTails.get(iid));
             // Step 4: update user preferences
             uprefs.addToEntry(feature, updater.getUserFeatureUpdate());
         }

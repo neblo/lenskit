@@ -74,6 +74,9 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         int itemCount = snapshot.getItemIds().size();
         RealMatrix itemFeatures = MatrixUtils.createRealMatrix(itemCount, featureCount);
 
+        // implicit features matrix
+        RealMatrix implicitFeatures = MatrixUtils.createRealMatrix(userCount, featureCount);
+
         logger.debug("Learning rate is {}", rule.getLearningRate());
         logger.debug("Regularization term is {}", rule.getTrainingRegularization());
 
@@ -87,7 +90,8 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // Use scratch vectors for each feature for better cache locality
         // Per-feature vectors are strided in the output matrices
         RealVector uvec = MatrixUtils.createRealVector(new double [userCount]);
-        RealVector ivec = MatrixUtils.createRealVector(new double[itemCount]);
+        RealVector ivec = MatrixUtils.createRealVector(new double [itemCount]);
+        RealVector nvec = MatrixUtils.createRealVector(new double [userCount]); // implicit feats
 
         for (int f = 0; f < featureCount; f++) {
             logger.debug("Training feature {}", f);
@@ -96,9 +100,10 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
             uvec.set(initialValue);
             ivec.set(initialValue);
+            nvec.set(0); // set initial values for implicit feedback
 
             FeatureInfo.Builder fib = new FeatureInfo.Builder(f);
-            trainFeature(f, estimates, uvec, ivec, fib);
+            trainFeature(f, estimates, uvec, ivec, nvec, fib);
             summarizeFeature(uvec, ivec, fib);
             featureInfo.add(fib.build());
 
@@ -118,13 +123,14 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // Wrap the user/item matrices because we won't use or modify them again
         return new SVDppModel(userFeatures,
                                 itemFeatures,
+                                implicitFeatures,
                                 snapshot.userIndex(), snapshot.itemIndex(),
                                 featureInfo);
     }
 
     /**
      * Train a feature using a collection of ratings.  This method iteratively calls {@link
-     * #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, double)}  to train
+     * #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, RealVector, double)}  to train
      * the feature.  It can be overridden to customize the feature training strategy.
      *
      * <p>We use the estimator to maintain the estimate up through a particular feature value,
@@ -140,21 +146,23 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
      *                  and may be reused between features.
      * @param itemFeatureVector      The item feature values.  This has been initialized to the initial value,
      *                  and may be reused between features.
+     * @param implicitFeatureVector The implicit feedback feature values. This has been initialized to the initial value,
+     *                  and may be reused between features.
      * @param fib       The feature info builder. This method is only expected to add information
      *                  about its training rounds to the builder; the caller takes care of feature
      *                  number and summary data.
-     * @see #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, double)
+     * @see #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, RealVector, double)
      * @see #summarizeFeature(RealVector, RealVector, FeatureInfo.Builder)
      */
     protected void trainFeature(int feature, TrainingEstimator estimates,
                                 RealVector userFeatureVector, RealVector itemFeatureVector,
-                                FeatureInfo.Builder fib) {
+                                RealVector implicitFeatureVector, FeatureInfo.Builder fib) {
         double rmse = Double.MAX_VALUE;
         double trail = initialValue * initialValue * (featureCount - feature - 1);
         TrainingLoopController controller = rule.getTrainingLoopController();
         Collection<IndexedPreference> ratings = snapshot.getRatings();
         while (controller.keepTraining(rmse)) {
-            rmse = doFeatureIteration(estimates, ratings, userFeatureVector, itemFeatureVector, trail);
+            rmse = doFeatureIteration(estimates, ratings, userFeatureVector, itemFeatureVector, implicitFeatureVector, trail);
             fib.addTrainingRound(rmse);
             logger.trace("iteration {} finished with RMSE {}", controller.getIterationCount(), rmse);
         }
@@ -169,13 +177,14 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
      * @param ratings   The ratings to train on.
      * @param userFeatureVector The user column vector for the current feature.
      * @param itemFeatureVector The item column vector for the current feature.
+     * @param implicitFeatureVector The implicit feedback column vector for the current feature.
      * @param trail The sum of the remaining user-item-feature values.
      * @return The RMSE of the feature iteration.
      */
     protected double doFeatureIteration(TrainingEstimator estimates,
                                         Collection<IndexedPreference> ratings,
                                         RealVector userFeatureVector, RealVector itemFeatureVector,
-                                        double trail) {
+                                        RealVector implicitFeatureVector, double trail) {
         // We'll create a fresh updater for each feature iteration
         // Not much overhead, and prevents needing another parameter
         SVDppUpdater updater = rule.createUpdater();
@@ -185,7 +194,8 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
             final int iidx = r.getItemIndex();
 
             updater.prepare(0, r.getValue(), estimates.get(r),
-                            userFeatureVector.getEntry(uidx), itemFeatureVector.getEntry(iidx), trail);
+                            userFeatureVector.getEntry(uidx), itemFeatureVector.getEntry(iidx),
+                            implicitFeatureVector, trail);
 
             // Step 3: Update feature values
             userFeatureVector.addToEntry(uidx, updater.getUserFeatureUpdate());

@@ -20,6 +20,7 @@
  */
 package org.grouplens.lenskit.mf.svdpp;
 
+import org.apache.commons.math3.linear.RealVector;
 import org.grouplens.lenskit.data.pref.PreferenceDomain;
 
 /**
@@ -90,12 +91,13 @@ public final class SVDppUpdater {
      * @param estimate The estimate through the previous feature.
      * @param uv       The user feature value.
      * @param iv       The item feature value.
+     * @param nfv      The implicit feedback feature vector.
      * @param trail    The sum of the trailing feature value products.
      */
     public void prepare(int feature, double rating, double estimate,
-                        double uv, double iv, double trail) {
+                        double uv, double iv, RealVector nfv, double trail) {
         // Compute prediction
-        double pred = estimate + uv * iv;
+        double pred = estimate + (uv + Math.pow(nfv.getDimension(), -0.5) * realVectorSum(nfv)) * iv;
         PreferenceDomain dom = updateRule.getDomain();
         if (dom != null) {
             pred = dom.clampValue(pred);
@@ -112,6 +114,15 @@ public final class SVDppUpdater {
         sse += error * error;
     }
 
+    // TODO Find a better solution than this
+    private double realVectorSum (RealVector rv){
+        double total = 0;
+        for (double i : rv.toArray()){
+            total += i;
+        }
+        return total;
+    }
+
     /**
      * Get the error from the prepared update.
      * @return The estimation error in the prepared update.
@@ -119,6 +130,7 @@ public final class SVDppUpdater {
     public double getError() {
         return error;
     }
+
 
     /**
      * Get the update for the user-feature value.

@@ -29,6 +29,7 @@ import org.grouplens.lenskit.core.Shareable;
 import org.grouplens.lenskit.indexes.IdIndexMapping;
 import org.grouplens.lenskit.mf.svd.MFModel;
 
+import javax.annotation.Nullable;
 import java.util.List;
 
 /**
@@ -45,10 +46,14 @@ public final class SVDppModel extends MFModel {
     private final List<FeatureInfo> featureInfo;
     private final RealVector averageUser;
 
-    public SVDppModel(RealMatrix umat, RealMatrix imat,
+    protected RealMatrix implicitFeedbackMatrix;
+
+    public SVDppModel(RealMatrix umat, RealMatrix imat, RealMatrix nmat,
                       IdIndexMapping uidx, IdIndexMapping iidx,
                       List<FeatureInfo> features) {
         super(umat, imat, uidx, iidx);
+
+        implicitFeedbackMatrix = nmat;
 
         featureInfo = ImmutableList.copyOf(features);
 
@@ -76,7 +81,15 @@ public final class SVDppModel extends MFModel {
         return featureInfo;
     }
 
-    public RealVector getAverageUserVector() {
-        return averageUser;
+    public RealVector getAverageUserVector() { return averageUser; }
+
+    @Nullable
+    public RealVector getImplicitFeedbackVector(long user) {
+        int uidx = userIndex.tryGetIndex(user);
+        if (uidx < 0) {
+            return null;
+        } else {
+            return implicitFeedbackMatrix.getRowVector(uidx);
+        }
     }
 }
