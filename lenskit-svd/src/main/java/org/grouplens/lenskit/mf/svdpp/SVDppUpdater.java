@@ -21,6 +21,7 @@
 package org.grouplens.lenskit.mf.svdpp;
 
 import org.apache.commons.math3.linear.RealVector;
+import org.apache.commons.math3.stat.StatUtils;
 import org.grouplens.lenskit.data.pref.PreferenceDomain;
 
 /**
@@ -97,7 +98,7 @@ public final class SVDppUpdater {
     public void prepare(int feature, double rating, double estimate,
                         double uv, double iv, RealVector nfv, double trail) {
         // Compute prediction
-        double pred = estimate + (uv + Math.pow(nfv.getDimension(), -0.5) * realVectorSum(nfv)) * iv;
+        double pred = estimate + (uv + Math.pow(nfv.getDimension(), -0.5) * StatUtils.sum(nfv.toArray())) * iv; // TODO check ot see if .toArray() is inefficient.
         PreferenceDomain dom = updateRule.getDomain();
         if (dom != null) {
             pred = dom.clampValue(pred);
@@ -112,15 +113,6 @@ public final class SVDppUpdater {
         // Update statistics
         n += 1;
         sse += error * error;
-    }
-
-    // TODO Find a better solution than this
-    private double realVectorSum (RealVector rv){
-        double total = 0;
-        for (double i : rv.toArray()){
-            total += i;
-        }
-        return total;
     }
 
     /**
