@@ -38,6 +38,7 @@ import javax.inject.Provider;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Random;
 
 /**
  * SVD recommender builder using gradient descent.
@@ -69,14 +70,32 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
     @Override
     public SVDppModel get() {
+        // setup userFeatures ( set random value from 0 to 0.1 )
+        Random rand = new Random();
         int userCount = snapshot.getUserIds().size();
         RealMatrix userFeatures = MatrixUtils.createRealMatrix(userCount, featureCount);
+        for (int i=0; i < userCount; i++) {
+            for (int j=0; j < featureCount; j++) {
+                userFeatures.setEntry(i, j, rand.nextDouble() * .1);
+            }
+        }
 
+        // setup itemFeatures ( set random value from 0 to 0.1 )
         int itemCount = snapshot.getItemIds().size();
         RealMatrix itemFeatures = MatrixUtils.createRealMatrix(itemCount, featureCount);
+        for (int i=0; i < itemCount; i++) {
+            for (int j=0; j < featureCount; j++) {
+                userFeatures.setEntry(i, j, rand.nextDouble() * .1);
+            }
+        }
 
-        // implicit features matrix
-        RealMatrix implicitFeatures = MatrixUtils.createRealMatrix(userCount, featureCount);
+        // setup implicitFeatures ( set random value from 0 to 0.1 )
+        RealMatrix implicitFeatures = MatrixUtils.createRealMatrix(itemCount, featureCount);
+        for (int i=0; i < itemCount; i++) {
+            for (int j=0; j < featureCount; j++) {
+                implicitFeatures.setEntry(i, j, rand.nextDouble() * .1);
+            }
+        }
 
         logger.debug("Learning rate is {}", rule.getLearningRate());
         logger.debug("Regularization term is {}", rule.getTrainingRegularization());
@@ -88,38 +107,91 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
         List<FeatureInfo> featureInfo = new ArrayList<FeatureInfo>(featureCount);
 
-        // Use scratch vectors for each feature for better cache locality
-        // Per-feature vectors are strided in the output matrices
-        RealVector uvec = MatrixUtils.createRealVector(new double [userCount]);
-        RealVector ivec = MatrixUtils.createRealVector(new double [itemCount]);
-        RealVector nvec = MatrixUtils.createRealVector(new double [userCount]); // implicit feats
+        // get ratings
+        Collection<IndexedPreference> ratings = snapshot.getRatings();
 
-        for (int f = 0; f < featureCount; f++) {
-            logger.debug("Training feature {}", f);
-            StopWatch timer = new StopWatch();
-            timer.start();
+        // learning rates TODO integrate into updater
+        double learn_rate = 0.007;
+        double reg_term = 0.015;
 
-            uvec.set(initialValue);
-            ivec.set(initialValue);
-            nvec.set(0); // set initial values for implicit feedback
+        // Train model
+        for (IndexedPreference r : ratings) {
+            final int uidx = r.getUserIndex();
+            final int iidx = r.getItemIndex();
 
-            FeatureInfo.Builder fib = new FeatureInfo.Builder(f);
-            trainFeature(f, estimates, uvec, ivec, nvec, fib);
-            summarizeFeature(uvec, ivec, fib);
-            featureInfo.add(fib.build());
+            // Use scratch vectors for each feature for better cache locality
+            // Per-feature vectors are strided in the output matrices
+            RealVector uvec = userFeatures.getRowVector(uidx);
+            RealVector ivec = itemFeatures.getRowVector(iidx);
+            RealVector nvec;
 
-            // Update each rating's cached value to accommodate the feature values.
-            estimates.update(uvec, ivec);
+            // get ratings for this user (for implicit feedback calculations)
+            Collection<IndexedPreference> user_ratings = snapshot.getUserRatings(uidx);
+            // SUM of user's implicit feedback (Yj)
+            RealVector yjvec = MatrixUtils.createRealVector(new double[userCount]);
+            for(IndexedPreference ur : user_ratings){
+                yjvec = yjvec.add(implicitFeatures.getRowVector(ur.getUserIndex()));
+            }
+            // |N(u)|^-1/2 * SUM Yj
+            nvec = yjvec.mapMultiply( Math.pow(user_ratings.size(), -0.5) );
 
-            // And store the data into the matrix
-            userFeatures.setColumnVector(f, uvec);
-            assert Math.abs(userFeatures.getColumnVector(f).getL1Norm() - uvec.getL1Norm()) < 1.0e-4 : "user column sum matches";
-            itemFeatures.setColumnVector(f, ivec);
-            assert Math.abs(itemFeatures.getColumnVector(f).getL1Norm() - ivec.getL1Norm()) < 1.0e-4 : "item column sum matches";
+            // find error of prediction
+            double iv = ivec.getEntry(iidx);    // Item Feature Value
+            double uv = uvec.getEntry(uidx);    // User Feature Value
+            double estimate = estimates.get(r); // Base Estimate
 
-            timer.stop();
-            logger.info("Finished feature {} in {}", f, timer);
+            double pred = estimate + uv * iv;   // Calculate Prediction
+            double rating = r.getValue();       // Actual Rating Value
+            double error = rating - pred;       // Calculate Error
+
+            // TODO find a cleaner way of doing this
+            // compute delta in item vector : Pu <- Pu + learn_rate * (error * Qi - reg_term * Pu)
+            RealVector uvec_deltas, temp_vec;
+            uvec_deltas = uvec.mapAdd(reg_term); // regularizationTerm * Pu
+            temp_vec = ivec.mapMultiply(error); // error * Qi
+            uvec_deltas = temp_vec.subtract(uvec_deltas);
+            uvec_deltas = uvec_deltas.mapMultiply(learn_rate);
+            uvec_deltas = uvec_deltas.add(uvec);
+
+            // compute delta in user vector : Qi <- Qi + learn_rate * (error * (Pu + |N(u)|^-1/2 * SUM Yj) - reg_term * Qi)
+            RealVector ivec_deltas;
+            double implicit_weight = 0; // TODO implement later
+            ivec_deltas = uvec.mapAdd(implicit_weight); // Pu + |N(u)|^-1/2 * SUM(Yj)
+            temp_vec = ivec.mapMultiply(reg_term); // reg_term * Qi
+            ivec_deltas = ivec_deltas.subtract(temp_vec);
+            ivec_deltas = ivec_deltas.mapMultiply(learn_rate);
+            ivec_deltas = ivec.add(ivec_deltas);
+
+            // apply deltas
+            userFeatures.setRowVector(uidx, uvec_deltas);
+            itemFeatures.setRowVector(iidx, ivec_deltas);
         }
+//        for (int f = 0; f < featureCount; f++) {
+//            logger.debug("Training feature {}", f);
+//            StopWatch timer = new StopWatch();
+//            timer.start();
+//
+//            uvec.set(initialValue);
+//            ivec.set(initialValue);
+//            nvec.set(0); // set initial values for implicit feedback
+//
+//            FeatureInfo.Builder fib = new FeatureInfo.Builder(f);
+//            trainFeature(f, estimates, uvec, ivec, nvec, fib);
+//            summarizeFeature(uvec, ivec, fib);
+//            featureInfo.add(fib.build());
+//
+//            // Update each rating's cached value to accommodate the feature values.
+//            estimates.update(uvec, ivec);
+//
+//            // And store the data into the matrix
+//            userFeatures.setColumnVector(f, uvec);
+//            assert Math.abs(userFeatures.getColumnVector(f).getL1Norm() - uvec.getL1Norm()) < 1.0e-4 : "user column sum matches";
+//            itemFeatures.setColumnVector(f, ivec);
+//            assert Math.abs(itemFeatures.getColumnVector(f).getL1Norm() - ivec.getL1Norm()) < 1.0e-4 : "item column sum matches";
+//
+//            timer.stop();
+//            logger.info("Finished feature {} in {}", f, timer);
+//        }
 
         // Wrap the user/item matrices because we won't use or modify them again
         return new SVDppModel(userFeatures,
