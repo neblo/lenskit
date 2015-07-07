@@ -121,32 +121,34 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
             // Use scratch vectors for each feature for better cache locality
             // Per-feature vectors are strided in the output matrices
-            RealVector uvec = userFeatures.getRowVector(uidx);
-            RealVector ivec = itemFeatures.getRowVector(iidx);
-            RealVector nvec;
+            RealVector uvec = userFeatures.getRowVector(uidx); // user vector
+            RealVector ivec = itemFeatures.getRowVector(iidx); // item vector
+            RealVector nvec;                                   // implicit feedback vector
 
             // get ratings for this user (for implicit feedback calculations)
             Collection<IndexedPreference> user_ratings = snapshot.getUserRatings(uidx);
             // SUM of user's implicit feedback (Yj)
             RealVector yjvec = MatrixUtils.createRealVector(new double[userCount]);
             for(IndexedPreference ur : user_ratings){
-                yjvec = yjvec.add(implicitFeatures.getRowVector(ur.getUserIndex()));
+                yjvec = yjvec.add(implicitFeatures.getRowVector(ur.getUserIndex())); // TODO by user or item?
             }
             // |N(u)|^-1/2 * SUM Yj
             nvec = yjvec.mapMultiply( Math.pow(user_ratings.size(), -0.5) );
 
-            // find error of prediction
-            double iv = ivec.getEntry(iidx);    // Item Feature Value
-            double uv = uvec.getEntry(uidx);    // User Feature Value
-            double estimate = estimates.get(r); // Base Estimate
+            // base score estimate
+            double estimate = estimates.get(r);
 
-            double pred = estimate + uv * iv;   // Calculate Prediction
+            // Qi (Pu + |N(u)|^-1/2 * SUM Yj)
+            RealVector userItemFeatureScores = ivec.ebeMultiply( uvec.add(nvec) );
+
+            // calculate predicted rating
+            double pred = estimate + StatUtils.sum( userItemFeatureScores.toArray() );   // Calculate Prediction
             double rating = r.getValue();       // Actual Rating Value
             double error = rating - pred;       // Calculate Error
 
             // TODO find a cleaner way of doing this
             // compute delta in item vector : Pu <- Pu + learn_rate * (error * Qi - reg_term * Pu)
-            RealVector uvec_deltas, temp_vec;
+            RealVector uvec_deltas, temp_vec, temp_vec_2, temp_vec_3;
             uvec_deltas = uvec.mapAdd(reg_term); // regularizationTerm * Pu
             temp_vec = ivec.mapMultiply(error); // error * Qi
             uvec_deltas = temp_vec.subtract(uvec_deltas);
@@ -155,16 +157,34 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
             // compute delta in user vector : Qi <- Qi + learn_rate * (error * (Pu + |N(u)|^-1/2 * SUM Yj) - reg_term * Qi)
             RealVector ivec_deltas;
-            double implicit_weight = 0; // TODO implement later
-            ivec_deltas = uvec.mapAdd(implicit_weight); // Pu + |N(u)|^-1/2 * SUM(Yj)
+            ivec_deltas = uvec.add(nvec); // Pu + |N(u)|^-1/2 * SUM(Yj)
             temp_vec = ivec.mapMultiply(reg_term); // reg_term * Qi
             ivec_deltas = ivec_deltas.subtract(temp_vec);
             ivec_deltas = ivec_deltas.mapMultiply(learn_rate);
             ivec_deltas = ivec.add(ivec_deltas);
 
+            // compute deltas for implicit feedback vector : Yj <- Yj + learn_rate * ( error * |N(u)|^-1/2 * Qi - reg_term * Yi)
+            RealMatrix nvec_deltas = MatrixUtils.createRealMatrix(user_ratings.size() , featureCount);
+            int[] nvec_delta_map = new int[user_ratings.size()];
+            int i = 0;
+            for(IndexedPreference ur : user_ratings){
+                nvec_delta_map[i] = ur.getUserIndex(); // map nvec_deltas to implicit features matrix // TODO Should be by item index???
+
+                temp_vec =  implicitFeatures.getRowVector(ur.getUserIndex()); // Yj
+                temp_vec_2 = temp_vec.mapMultiply(reg_term); // reg_term * Yi
+                temp_vec_3 = ivec.mapMultiply( error * Math.pow(user_ratings.size(), -0.5) ); //  error * |N(u)|^-1/2 * Qi
+                temp_vec_2 = temp_vec_2.subtract(temp_vec_3);
+                temp_vec_2 = temp_vec_2.mapMultiply(learn_rate);
+                nvec_deltas.setRowVector( i, temp_vec_2.add(temp_vec) );
+            }
+
+
             // apply deltas
             userFeatures.setRowVector(uidx, uvec_deltas);
             itemFeatures.setRowVector(iidx, ivec_deltas);
+            for(i=0; i < user_ratings.size(); i++){
+                implicitFeatures.setRowVector( nvec_delta_map[i], nvec_deltas.getRowVector(i) );
+            }
         }
 //        for (int f = 0; f < featureCount; f++) {
 //            logger.debug("Training feature {}", f);
