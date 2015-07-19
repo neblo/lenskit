@@ -110,7 +110,7 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // get ratings
         Collection<IndexedPreference> ratings = snapshot.getRatings();
 
-        // learning rates TODO integrate into updater
+        // learning rates
         double learn_rate = 0.007;
         double reg_term = 0.015;
 
@@ -152,55 +152,19 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
             ivec_deltas.mapMultiplyToSelf(learn_rate);
 
             // compute deltas for implicit feedback vector : Yj <- Yj + learn_rate * ( error * |N(u)|^-1/2 * Qi - reg_term * Yi)
-            //RealMatrix nvec_deltas = MatrixUtils.createRealMatrix(user_ratings.size() , featureCount); // TODO Do I need this matrix??? will remove for now
             RealVector temp_vec;
-//            int[] nvec_delta_map = new int[user_ratings.size()];
-//            int i = 0;
             int itemIndex;
             for(IndexedPreference ur : user_ratings){
-                //nvec_delta_map[i] = ur.getItemIndex(); // map nvec_deltas to implicit features matrix
                 itemIndex = ur.getItemIndex();
                 temp_vec = ivec.combine(error * Math.pow(user_ratings.size(), -0.5), reg_term, implicitFeatures.getRowVector(itemIndex));
                 temp_vec.mapMultiplyToSelf(learn_rate);
-                // apply delta
                 implicitFeatures.setRowVector( itemIndex, temp_vec.add(implicitFeatures.getRowVector(itemIndex)) );
-                //i++;
             }
-
 
             // apply deltas
             userFeatures.setRowVector(uidx, uvec_deltas);
             itemFeatures.setRowVector(iidx, ivec_deltas);
-//            for(i=0; i < user_ratings.size(); i++){
-//                implicitFeatures.setRowVector( nvec_delta_map[i], nvec_deltas.getRowVector(i) );
-//            }
         }
-//        for (int f = 0; f < featureCount; f++) {
-//            logger.debug("Training feature {}", f);
-//            StopWatch timer = new StopWatch();
-//            timer.start();
-//
-//            uvec.set(initialValue);
-//            ivec.set(initialValue);
-//            nvec.set(0); // set initial values for implicit feedback
-//
-//            FeatureInfo.Builder fib = new FeatureInfo.Builder(f);
-//            trainFeature(f, estimates, uvec, ivec, nvec, fib);
-//            summarizeFeature(uvec, ivec, fib);
-//            featureInfo.add(fib.build());
-//
-//            // Update each rating's cached value to accommodate the feature values.
-//            estimates.update(uvec, ivec);
-//
-//            // And store the data into the matrix
-//            userFeatures.setColumnVector(f, uvec);
-//            assert Math.abs(userFeatures.getColumnVector(f).getL1Norm() - uvec.getL1Norm()) < 1.0e-4 : "user column sum matches";
-//            itemFeatures.setColumnVector(f, ivec);
-//            assert Math.abs(itemFeatures.getColumnVector(f).getL1Norm() - ivec.getL1Norm()) < 1.0e-4 : "item column sum matches";
-//
-//            timer.stop();
-//            logger.info("Finished feature {} in {}", f, timer);
-//        }
 
         // Wrap the user/item matrices because we won't use or modify them again
         return new SVDppModel(userFeatures,
@@ -210,95 +174,95 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
                                 featureInfo);
     }
 
-    /**
-     * Train a feature using a collection of ratings.  This method iteratively calls {@link
-     * #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, RealVector, double)}  to train
-     * the feature.  It can be overridden to customize the feature training strategy.
-     *
-     * <p>We use the estimator to maintain the estimate up through a particular feature value,
-     * rather than recomputing the entire kernel value every time.  This hopefully speeds up training.
-     * It means that we always tell the updater we are training feature 0, but use a subvector that
-     * starts with the current feature.</p>
-     *
-     *
-     * @param feature   The number of the current feature.
-     * @param estimates The current estimator.  This method is <b>not</b> expected to update the
-     *                  estimator.
-     * @param userFeatureVector      The user feature values.  This has been initialized to the initial value,
-     *                  and may be reused between features.
-     * @param itemFeatureVector      The item feature values.  This has been initialized to the initial value,
-     *                  and may be reused between features.
-     * @param implicitFeatureVector The implicit feedback feature values. This has been initialized to the initial value,
-     *                  and may be reused between features.
-     * @param fib       The feature info builder. This method is only expected to add information
-     *                  about its training rounds to the builder; the caller takes care of feature
-     *                  number and summary data.
-     * @see #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, RealVector, double)
-     * @see #summarizeFeature(RealVector, RealVector, FeatureInfo.Builder)
-     */
-    protected void trainFeature(int feature, TrainingEstimator estimates,
-                                RealVector userFeatureVector, RealVector itemFeatureVector,
-                                RealVector implicitFeatureVector, FeatureInfo.Builder fib) {
-        double rmse = Double.MAX_VALUE;
-        double trail = initialValue * initialValue * (featureCount - feature - 1);
-        TrainingLoopController controller = rule.getTrainingLoopController();
-        Collection<IndexedPreference> ratings = snapshot.getRatings();
-        while (controller.keepTraining(rmse)) {
-            rmse = doFeatureIteration(estimates, ratings, userFeatureVector, itemFeatureVector, implicitFeatureVector, trail);
-            fib.addTrainingRound(rmse);
-            logger.trace("iteration {} finished with RMSE {}", controller.getIterationCount(), rmse);
-        }
-    }
-
-    /**
-     * Do a single feature iteration.
-     *
-     *
-     *
-     * @param estimates The estimates.
-     * @param ratings   The ratings to train on.
-     * @param userFeatureVector The user column vector for the current feature.
-     * @param itemFeatureVector The item column vector for the current feature.
-     * @param implicitFeatureVector The implicit feedback column vector for the current feature.
-     * @param trail The sum of the remaining user-item-feature values.
-     * @return The RMSE of the feature iteration.
-     */
-    protected double doFeatureIteration(TrainingEstimator estimates,
-                                        Collection<IndexedPreference> ratings,
-                                        RealVector userFeatureVector, RealVector itemFeatureVector,
-                                        RealVector implicitFeatureVector, double trail) {
-        // We'll create a fresh updater for each feature iteration
-        // Not much overhead, and prevents needing another parameter
-        SVDppUpdater updater = rule.createUpdater();
-
-        for (IndexedPreference r : ratings) {
-            final int uidx = r.getUserIndex();
-            final int iidx = r.getItemIndex();
-
-            updater.prepare(0, r.getValue(), estimates.get(r),
-                            userFeatureVector.getEntry(uidx), itemFeatureVector.getEntry(iidx),
-                            implicitFeatureVector, trail);
-
-            // Step 3: Update feature values
-            userFeatureVector.addToEntry(uidx, updater.getUserFeatureUpdate());
-            itemFeatureVector.addToEntry(iidx, updater.getItemFeatureUpdate());
-        }
-
-        return updater.getRMSE();
-    }
-
-    /**
-     * Add a feature's summary to the feature info builder.
-     *
-     * @param ufv The user values.
-     * @param ifv The item values.
-     * @param fib  The feature info builder.
-     */
-    protected void summarizeFeature(RealVector ufv, RealVector ifv, FeatureInfo.Builder fib) {
-        StatUtils.sum(ifv.toArray());
-
-        fib.setUserAverage(StatUtils.sum(ufv.toArray()) / ufv.getDimension())
-           .setItemAverage(StatUtils.sum(ifv.toArray()) / ifv.getDimension())
-           .setSingularValue(ufv.getNorm() * ifv.getNorm());
-    }
+//    /**
+//     * Train a feature using a collection of ratings.  This method iteratively calls {@link
+//     * #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, RealVector, double)}  to train
+//     * the feature.  It can be overridden to customize the feature training strategy.
+//     *
+//     * <p>We use the estimator to maintain the estimate up through a particular feature value,
+//     * rather than recomputing the entire kernel value every time.  This hopefully speeds up training.
+//     * It means that we always tell the updater we are training feature 0, but use a subvector that
+//     * starts with the current feature.</p>
+//     *
+//     *
+//     * @param feature   The number of the current feature.
+//     * @param estimates The current estimator.  This method is <b>not</b> expected to update the
+//     *                  estimator.
+//     * @param userFeatureVector      The user feature values.  This has been initialized to the initial value,
+//     *                  and may be reused between features.
+//     * @param itemFeatureVector      The item feature values.  This has been initialized to the initial value,
+//     *                  and may be reused between features.
+//     * @param implicitFeatureVector The implicit feedback feature values. This has been initialized to the initial value,
+//     *                  and may be reused between features.
+//     * @param fib       The feature info builder. This method is only expected to add information
+//     *                  about its training rounds to the builder; the caller takes care of feature
+//     *                  number and summary data.
+//     * @see #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, RealVector, double)
+//     * @see #summarizeFeature(RealVector, RealVector, FeatureInfo.Builder)
+//     */
+//    protected void trainFeature(int feature, TrainingEstimator estimates,
+//                                RealVector userFeatureVector, RealVector itemFeatureVector,
+//                                RealVector implicitFeatureVector, FeatureInfo.Builder fib) {
+//        double rmse = Double.MAX_VALUE;
+//        double trail = initialValue * initialValue * (featureCount - feature - 1);
+//        TrainingLoopController controller = rule.getTrainingLoopController();
+//        Collection<IndexedPreference> ratings = snapshot.getRatings();
+//        while (controller.keepTraining(rmse)) {
+//            rmse = doFeatureIteration(estimates, ratings, userFeatureVector, itemFeatureVector, implicitFeatureVector, trail);
+//            fib.addTrainingRound(rmse);
+//            logger.trace("iteration {} finished with RMSE {}", controller.getIterationCount(), rmse);
+//        }
+//    }
+//
+//    /**
+//     * Do a single feature iteration.
+//     *
+//     *
+//     *
+//     * @param estimates The estimates.
+//     * @param ratings   The ratings to train on.
+//     * @param userFeatureVector The user column vector for the current feature.
+//     * @param itemFeatureVector The item column vector for the current feature.
+//     * @param implicitFeatureVector The implicit feedback column vector for the current feature.
+//     * @param trail The sum of the remaining user-item-feature values.
+//     * @return The RMSE of the feature iteration.
+//     */
+//    protected double doFeatureIteration(TrainingEstimator estimates,
+//                                        Collection<IndexedPreference> ratings,
+//                                        RealVector userFeatureVector, RealVector itemFeatureVector,
+//                                        RealVector implicitFeatureVector, double trail) {
+//        // We'll create a fresh updater for each feature iteration
+//        // Not much overhead, and prevents needing another parameter
+//        SVDppUpdater updater = rule.createUpdater();
+//
+//        for (IndexedPreference r : ratings) {
+//            final int uidx = r.getUserIndex();
+//            final int iidx = r.getItemIndex();
+//
+//            updater.prepare(0, r.getValue(), estimates.get(r),
+//                            userFeatureVector.getEntry(uidx), itemFeatureVector.getEntry(iidx),
+//                            implicitFeatureVector, trail);
+//
+//            // Step 3: Update feature values
+//            userFeatureVector.addToEntry(uidx, updater.getUserFeatureUpdate());
+//            itemFeatureVector.addToEntry(iidx, updater.getItemFeatureUpdate());
+//        }
+//
+//        return updater.getRMSE();
+//    }
+//
+//    /**
+//     * Add a feature's summary to the feature info builder.
+//     *
+//     * @param ufv The user values.
+//     * @param ifv The item values.
+//     * @param fib  The feature info builder.
+//     */
+//    protected void summarizeFeature(RealVector ufv, RealVector ifv, FeatureInfo.Builder fib) {
+//        StatUtils.sum(ifv.toArray());
+//
+//        fib.setUserAverage(StatUtils.sum(ufv.toArray()) / ufv.getDimension())
+//           .setItemAverage(StatUtils.sum(ifv.toArray()) / ifv.getDimension())
+//           .setSingularValue(ufv.getNorm() * ifv.getNorm());
+//    }
 }
