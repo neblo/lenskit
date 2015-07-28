@@ -23,6 +23,7 @@ package org.grouplens.lenskit.mf.svdpp;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSortedSet;
 import org.apache.commons.math3.linear.RealVector;
+import org.apache.commons.math3.linear.MatrixUtils;
 import org.grouplens.lenskit.ItemScorer;
 import org.grouplens.lenskit.baseline.BaselineScorer;
 import org.grouplens.lenskit.basic.AbstractItemScorer;
@@ -44,6 +45,7 @@ import org.grouplens.lenskit.vectors.VectorEntry;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
+import java.util.Vector;
 
 /**
  * Do recommendations and predictions based on SVD matrix factorization.
@@ -150,78 +152,124 @@ public class SVDppItemScorer extends AbstractItemScorer {
         }
         SparseVector ratings = Ratings.userRatingVector(history);
         
-        RealVector uprefs = model.getUserVector(user);
-        if (uprefs == null) {
+        RealVector userFV = model.getUserVector(user);
+        if (userFV == null) {
             if (ratings.isEmpty()) {
                 // no real work to do.
                 return;
             }
-            uprefs = model.getAverageUserVector();
+            userFV = model.getAverageUserVector();
         }
 
         MutableSparseVector estimates = initialEstimates(user, ratings, scores.keyDomain());
         // propagate estimates to the output scores
         scores.set(estimates);
 
+        // learning rates // TODO make customizable
+        double learn_rate = 0.007;
+        double reg_term = 0.015;
+
         if (!ratings.isEmpty() && rule != null) {
-            //RealVector updated = uprefs.copy();
-            for (int f = 0; f < featureCount; f++) {
-                trainUserFeature(user, uprefs, ratings, estimates, f); // changed updated to uprefs
-            }
-            //uprefs = updated;
-        }
 
+            for (VectorEntry r : ratings ){
+
+                RealVector itemFV = model.getItemVector(r.getKey()); // TODO r.getKey() gets item's key right (not position in vector)?
+                RealVector implicitFV = MatrixUtils.createRealVector(new double[featureCount]);
+
+                // Calculate user-item profile ->  Qi o (Pu + |N(u)|^-1/2 * SUM Yj)
+                for(VectorEntry ur : ratings){
+                    implicitFV.combineToSelf(1, 1, model.getImplicitFeedbackVector(ur.getKey()));
+                }
+                implicitFV.mapMultiplyToSelf(Math.pow(ratings.size(), -0.5));
+                implicitFV.add(userFV);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)
+                assert itemFV != null;
+                double user_item_profile = itemFV.dotProduct(implicitFV);
+
+                double estimate = estimates.get(r.getKey());  // base score estimate
+                double pred = estimate + user_item_profile;   // Calculate Prediction
+                double rating_value = r.getValue();           // Actual Rating Value
+                double error = rating_value - pred;           // Calculate Error
+
+                // compute delta in user vector : Pu <- Pu + learn_rate * (error * Qi - reg_term * Pu)
+                RealVector uvec_deltas;
+                uvec_deltas = itemFV.combine(error, -(reg_term), userFV);
+                uvec_deltas.mapMultiplyToSelf(learn_rate);
+
+                // compute delta in item vector : Qi <- Qi + learn_rate * (error * (Pu + |N(u)|^-1/2 * SUM Yj) - reg_term * Qi)
+                RealVector ivec_deltas;
+                ivec_deltas = implicitFV.combine(error, -(reg_term), itemFV);
+                ivec_deltas.mapMultiplyToSelf(learn_rate);
+
+                // compute/set new implicit feedback vectors : Yj <- Yj + learn_rate * ( error * |N(u)|^-1/2 * Qi - reg_term * Yj)
+                for(VectorEntry ur : ratings){
+                    long item_index = ur.getKey();
+                    RealVector temp_vec = itemFV.combine(error * Math.pow(ratings.size(), -0.5), -(reg_term), model.getImplicitFeedbackVector(item_index));
+                    temp_vec.mapMultiplyToSelf(learn_rate);
+                    temp_vec.combineToSelf(1, 1, model.getImplicitFeedbackVector(item_index));
+                    model.setImplicitFeedbackVector(item_index, temp_vec);
+                }
+
+                // apply deltas
+                model.setUserVector(user, uvec_deltas.combineToSelf(1, 1, userFV));
+                model.setItemVector(r.getKey(), ivec_deltas.combineToSelf(1, 1, itemFV));
+            }
+//            for (int f = 0; f < featureCount; f++) {
+//                trainUserFeature(user, uprefs, ratings, estimates, f); // changed updated to uprefs
+//            }
+//            //uprefs = updated;
+        }
         // scores are the estimates, uprefs are trained up.
-        computeScores(user, uprefs, scores);
+        //computeScores(user, uprefs, scores);
     }
 
-    private void trainUserFeature(long user, RealVector uprefs, SparseVector ratings,
-                                  MutableSparseVector estimates, int feature) {
-        assert rule != null;
-        assert uprefs.getDimension() == featureCount;
-        assert feature >= 0 && feature < featureCount;
-
-        int tailStart = feature + 1;
-        int tailSize = featureCount - feature - 1;
-        RealVector utail = uprefs.getSubVector(tailStart, tailSize);
-        MutableSparseVector tails = MutableSparseVector.create(ratings.keySet());
-        for (VectorEntry e: tails.view(VectorEntry.State.EITHER)) {
-            RealVector ivec = model.getItemVector(e.getKey());
-            if (ivec == null) {
-                // FIXME Do this properly
-                tails.set(e, 0);
-            } else {
-                ivec = ivec.getSubVector(tailStart, tailSize);
-                tails.set(e, utail.dotProduct(ivec));
-            }
-        }
-
-        double rmse = Double.MAX_VALUE;
-        TrainingLoopController controller = rule.getTrainingLoopController();
-        while (controller.keepTraining(rmse)) {
-            rmse = doFeatureIteration(user, uprefs, ratings, estimates, feature, tails);
-        }
-    }
-
-    private double doFeatureIteration(long user, RealVector uprefs,
-                                      SparseVector ratings, MutableSparseVector estimates,
-                                      int feature, SparseVector itemTails) {
-        assert rule != null;
-
-        SVDppUpdater updater = rule.createUpdater();
-        for (VectorEntry e: ratings) {
-            final long iid = e.getKey();
-            final RealVector ivec = model.getItemVector(iid);
-            final RealVector nvec = model.getImplicitFeedbackVector(user);
-            if (ivec == null) {
-                continue;
-            }
-
-            updater.prepare(feature, e.getValue(), estimates.get(iid),
-                            uprefs.getEntry(feature), ivec.getEntry(feature), nvec, itemTails.get(iid));
-            // Step 4: update user preferences
-            uprefs.addToEntry(feature, updater.getUserFeatureUpdate());
-        }
-        return updater.getRMSE();
-    }
+//
+//    private void trainUserFeature(long user, RealVector uprefs, SparseVector ratings,
+//                                  MutableSparseVector estimates, int feature) {
+//        assert rule != null;
+//        assert uprefs.getDimension() == featureCount;
+//        assert feature >= 0 && feature < featureCount;
+//
+//        int tailStart = feature + 1;
+//        int tailSize = featureCount - feature - 1;
+//        RealVector utail = uprefs.getSubVector(tailStart, tailSize);
+//        MutableSparseVector tails = MutableSparseVector.create(ratings.keySet());
+//        for (VectorEntry e: tails.view(VectorEntry.State.EITHER)) {
+//            RealVector ivec = model.getItemVector(e.getKey());
+//            if (ivec == null) {
+//                // FIXME Do this properly
+//                tails.set(e, 0);
+//            } else {
+//                ivec = ivec.getSubVector(tailStart, tailSize);
+//                tails.set(e, utail.dotProduct(ivec));
+//            }
+//        }
+//
+//        double rmse = Double.MAX_VALUE;
+//        TrainingLoopController controller = rule.getTrainingLoopController();
+//        while (controller.keepTraining(rmse)) {
+//            rmse = doFeatureIteration(user, uprefs, ratings, estimates, feature, tails);
+//        }
+//    }
+//
+//    private double doFeatureIteration(long user, RealVector uprefs,
+//                                      SparseVector ratings, MutableSparseVector estimates,
+//                                      int feature, SparseVector itemTails) {
+//        assert rule != null;
+//
+//        SVDppUpdater updater = rule.createUpdater();
+//        for (VectorEntry e: ratings) {
+//            final long iid = e.getKey();
+//            final RealVector ivec = model.getItemVector(iid);
+//            final RealVector nvec = model.getImplicitFeedbackVector(user);
+//            if (ivec == null) {
+//                continue;
+//            }
+//
+//            updater.prepare(feature, e.getValue(), estimates.get(iid),
+//                            uprefs.getEntry(feature), ivec.getEntry(feature), nvec, itemTails.get(iid));
+//            // Step 4: update user preferences
+//            uprefs.addToEntry(feature, updater.getUserFeatureUpdate());
+//        }
+//        return updater.getRMSE();
+//    }
 }

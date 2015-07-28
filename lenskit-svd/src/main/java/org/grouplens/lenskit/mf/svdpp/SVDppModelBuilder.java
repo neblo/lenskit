@@ -43,7 +43,7 @@ import java.util.Random;
 /**
  * SVD recommender builder using gradient descent.
  *
- * //TODO add documentation
+ * // TODO add documentation
  *
  * @author <a href="http://www.grouplens.org">GroupLens Research</a>
  */
@@ -70,29 +70,29 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
     @Override
     public SVDppModel get() {
-        // setup userFeatures ( set random value from 0 to 0.1 )
+        // setup userFeatures ( set random value from 0.00001 to ~0.1 )
         Random rand = new Random();
         int userCount = snapshot.getUserIds().size();
         RealMatrix userFeatures = MatrixUtils.createRealMatrix(userCount, featureCount);
-        for (int i=0; i < userCount; i++) {
-            for (int j=0; j < featureCount; j++) {
+        for (int i = 0; i < userCount; i++) {
+            for (int j = 0; j < featureCount; j++) {
                 userFeatures.setEntry(i, j, rand.nextDouble() * .1 + 0.00001);
             }
         }
 
-        // setup itemFeatures ( set random value from 0 to 0.1 )
+        // setup itemFeatures ( set random value from 0.00001 to ~0.1 )
         int itemCount = snapshot.getItemIds().size();
         RealMatrix itemFeatures = MatrixUtils.createRealMatrix(itemCount, featureCount);
-        for (int i=0; i < itemCount; i++) {
-            for (int j=0; j < featureCount; j++) {
-                userFeatures.setEntry(i, j, rand.nextDouble() * .1 + 0.00001);
+        for (int i = 0; i < itemCount; i++) {
+            for (int j = 0; j < featureCount; j++) {
+                itemFeatures.setEntry(i, j, rand.nextDouble() * .1 + 0.00001);
             }
         }
 
-        // setup implicitFeatures ( set random value from 0 to 0.1 )
+        // setup implicitFeatures ( set random value from 0.00001 to ~0.1 )
         RealMatrix implicitFeatures = MatrixUtils.createRealMatrix(itemCount, featureCount);
-        for (int i=0; i < itemCount; i++) {
-            for (int j=0; j < featureCount; j++) {
+        for (int i = 0; i < itemCount; i++) {
+            for (int j = 0; j < featureCount; j++) {
                 implicitFeatures.setEntry(i, j, rand.nextDouble() * .1 + 0.00001);
             }
         }
@@ -110,70 +110,99 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // get ratings
         Collection<IndexedPreference> ratings = snapshot.getRatings();
 
-        // learning rates
-        double learn_rate = 0.007;
-        double reg_term = 0.015;
+        int MAX_ITERATIONS = 30;
 
-        // Train model
-        for (IndexedPreference r : ratings) {
-            final int uidx = r.getUserIndex();
-            final int iidx = r.getItemIndex();
-
-            Collection<IndexedPreference> user_ratings = snapshot.getUserRatings(uidx); // ratings for this user
-
-            // Use scratch vectors for each feature for better cache locality
-            // Per-feature vectors are strided in the output matrices
-            RealVector uvec = userFeatures.getRowVector(uidx); // user vector
-            RealVector ivec = itemFeatures.getRowVector(iidx); // item vector
-            RealVector nvec = MatrixUtils.createRealVector(new double[featureCount]); // user-item profile vector
-
-            // Calculate user-item profile ->  Qi o (Pu + |N(u)|^-1/2 * SUM Yj)
-            for(IndexedPreference ur : user_ratings){
-                nvec.combineToSelf(1, 1, implicitFeatures.getRowVector(ur.getItemIndex())); // TODO better way of doing this?
+        for (int i = 0; i < MAX_ITERATIONS; i++){
+            // train model (one epoch)
+            for (IndexedPreference r : ratings) {
+                trainRating(r, estimates, userFeatures, itemFeatures, implicitFeatures);
             }
-            nvec.mapMultiplyToSelf( Math.pow(user_ratings.size(), -0.5) );
-            nvec.combineToSelf(1, 1, uvec);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)
-            double estimate = estimates.get(r);  // base score estimate
-            double userItemProfile = ivec.dotProduct( nvec );
-
-            // calculate predicted rating
-            double pred = estimate + userItemProfile;   // Calculate Prediction
-            double rating = r.getValue();               // Actual Rating Value
-            double error = rating - pred;               // Calculate Error
-
-            // compute delta in user vector : Pu <- Pu + learn_rate * (error * Qi - reg_term * Pu)
-            RealVector uvec_deltas;
-            uvec_deltas = ivec.combine(error, -(reg_term), uvec);
-            uvec_deltas.mapMultiplyToSelf(learn_rate);
-
-            // compute delta in item vector : Qi <- Qi + learn_rate * (error * (Pu + |N(u)|^-1/2 * SUM Yj) - reg_term * Qi)
-            RealVector ivec_deltas;
-            ivec_deltas = nvec.combine(error, -(reg_term), ivec);
-            ivec_deltas.mapMultiplyToSelf(learn_rate);
-
-            // compute deltas for implicit feedback vector : Yj <- Yj + learn_rate * ( error * |N(u)|^-1/2 * Qi - reg_term * Yi)
-            RealVector temp_vec;
-            int itemIndex;
-            for(IndexedPreference ur : user_ratings){
-                itemIndex = ur.getItemIndex();
-                temp_vec = ivec.combine(error * Math.pow(user_ratings.size(), -0.5), reg_term, implicitFeatures.getRowVector(itemIndex));
-                temp_vec.mapMultiplyToSelf(learn_rate);
-                implicitFeatures.setRowVector( itemIndex, temp_vec.add(implicitFeatures.getRowVector(itemIndex)) );
-            }
-
-            // apply deltas
-            userFeatures.setRowVector(uidx, uvec_deltas);
-            itemFeatures.setRowVector(iidx, ivec_deltas);
         }
 
         // Wrap the user/item matrices because we won't use or modify them again
         return new SVDppModel(userFeatures,
-                                itemFeatures,
-                                implicitFeatures,
-                                snapshot.userIndex(), snapshot.itemIndex(),
-                                featureInfo);
+                              itemFeatures,
+                              implicitFeatures,
+                              snapshot.userIndex(), snapshot.itemIndex(),
+                              featureInfo);
     }
 
+
+    protected void trainRating(IndexedPreference rating,
+                               TrainingEstimator estimates,
+                               RealMatrix userFeatures, RealMatrix itemFeatures, RealMatrix implicitFeatures) {
+
+        final int uidx = rating.getUserIndex();
+        final int iidx = rating.getItemIndex();
+
+        // Use scratch vectors for each feature for better cache locality
+        // Per-feature vectors are strided in the output matrices
+        RealVector userFeatureVector = userFeatures.getRowVector(uidx); // user vector
+        RealVector itemFeatureVector = itemFeatures.getRowVector(iidx); // item vector
+        RealVector implicitFeatureVector = MatrixUtils.createRealVector(new double[featureCount]); // user-item profile vector
+
+        // learning rates // TODO make customizable
+        double learn_rate = 0.007;
+        double reg_term = 0.015;
+
+        // ratings for this user
+        Collection<IndexedPreference> user_ratings = snapshot.getUserRatings(uidx);
+
+        // calculate predicted rating
+        double user_item_profile = getUserItemProfile(user_ratings, implicitFeatures,
+                                                      userFeatureVector, itemFeatureVector, implicitFeatureVector);
+        double estimate = estimates.get(rating);         // base score estimate
+        double pred = estimate + user_item_profile;      // Calculate Prediction
+        double rating_value = rating.getValue();         // Actual Rating Value
+        double error = rating_value - pred;              // Calculate Error
+
+        // compute delta in user vector : Pu <- Pu + learn_rate * (error * Qi - reg_term * Pu)
+        RealVector uvec_deltas;
+        uvec_deltas = itemFeatureVector.combine(error, -(reg_term), userFeatureVector);
+        uvec_deltas.mapMultiplyToSelf(learn_rate);
+
+        // compute delta in item vector : Qi <- Qi + learn_rate * (error * (Pu + |N(u)|^-1/2 * SUM Yj) - reg_term * Qi)
+        RealVector ivec_deltas;
+        ivec_deltas = implicitFeatureVector.combine(error, -(reg_term), itemFeatureVector);
+        ivec_deltas.mapMultiplyToSelf(learn_rate);
+
+        // compute deltas for implicit feedback vector : Yj <- Yj + learn_rate * ( error * |N(u)|^-1/2 * Qi - reg_term * Yj)
+        RealVector temp_vec;
+        int item_index;
+        for(IndexedPreference ur : user_ratings){
+            item_index = ur.getItemIndex();
+            temp_vec = itemFeatureVector.combine(error * Math.pow(user_ratings.size(), -0.5), -(reg_term), implicitFeatures.getRowVector(item_index));
+            temp_vec.mapMultiplyToSelf(learn_rate);
+            temp_vec.combineToSelf(1, 1, implicitFeatures.getRowVector(item_index));
+            implicitFeatures.setRowVector(item_index, temp_vec);
+        }
+
+        // apply deltas
+        userFeatures.setRowVector(uidx, uvec_deltas.combineToSelf(1, 1, userFeatureVector));
+        itemFeatures.setRowVector(iidx, ivec_deltas.combineToSelf(1, 1, itemFeatureVector));
+    }
+
+
+    /**
+     * Calculates and returns User-Item Profile
+     * user-item profile ->  Qi o (Pu + |N(u)|^-1/2 * SUM Yj)
+     */
+    protected double getUserItemProfile(Collection<IndexedPreference> user_ratings,
+                                        RealMatrix implicitFeatures,
+                                        RealVector userFeatureVector,
+                                        RealVector itemFeatureVector,
+                                        RealVector implicitFeatureVector){
+
+        for(IndexedPreference ur : user_ratings){
+            // TODO No function that adds to self, so I could only use combineToSelf, is there a better way? or should I just make a custom func?
+            implicitFeatureVector.combineToSelf(1, 1, implicitFeatures.getRowVector(ur.getItemIndex()));
+        }
+        implicitFeatureVector.mapMultiplyToSelf(Math.pow(user_ratings.size(), -0.5));
+        implicitFeatureVector.combineToSelf(1, 1, userFeatureVector);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)
+        return itemFeatureVector.dotProduct(implicitFeatureVector);
+    }
+
+//
 //    /**
 //     * Train a feature using a collection of ratings.  This method iteratively calls {@link
 //     * #doFeatureIteration(TrainingEstimator, Collection, RealVector, RealVector, RealVector, double)}  to train

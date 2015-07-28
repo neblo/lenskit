@@ -84,12 +84,27 @@ public final class SVDppModel extends MFModel {
     public RealVector getAverageUserVector() { return averageUser; }
 
     @Nullable
-    public RealVector getImplicitFeedbackVector(long user) {
-        int uidx = userIndex.tryGetIndex(user);
-        if (uidx < 0) {
+    public RealVector getImplicitFeedbackVector(long item) {
+        int iidx = itemIndex.tryGetIndex(item);
+        if (iidx < 0) {
             return null;
         } else {
-            return implicitFeedbackMatrix.getRowVector(uidx);
+            return implicitFeedbackMatrix.getRowVector(iidx);
         }
+    }
+
+    public void setImplicitFeedbackVector(long item, RealVector implicitFV) {
+        int iidx = itemIndex.tryGetIndex(item);
+        implicitFeedbackMatrix.setRowVector(iidx, implicitFV);
+    }
+
+    public void setItemVector(long item, RealVector itemFV) {
+        int iidx = itemIndex.tryGetIndex(item);
+        itemMatrix.setRowVector(iidx, itemFV);
+    }
+
+    public void setUserVector(long user, RealVector userFV) {
+        int iidx = userIndex.tryGetIndex(user);
+        userMatrix.setRowVector(iidx, userFV);
     }
 }
