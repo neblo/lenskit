@@ -72,11 +72,15 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
     public SVDppModel get() {
         // setup userFeatures ( set random value from 0.00001 to ~0.1 )
         Random rand = new Random();
+        double range_min = 0.0001;
+        double range_max = 1.0;
+        double range_offset = range_min + (range_max - range_min);
+
         int userCount = snapshot.getUserIds().size();
         RealMatrix userFeatures = MatrixUtils.createRealMatrix(userCount, featureCount);
         for (int i = 0; i < userCount; i++) {
             for (int j = 0; j < featureCount; j++) {
-                userFeatures.setEntry(i, j, rand.nextDouble() * .1 + 0.00001);
+                userFeatures.setEntry(i, j, rand.nextDouble() * range_offset);
             }
         }
 
@@ -85,7 +89,7 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         RealMatrix itemFeatures = MatrixUtils.createRealMatrix(itemCount, featureCount);
         for (int i = 0; i < itemCount; i++) {
             for (int j = 0; j < featureCount; j++) {
-                itemFeatures.setEntry(i, j, rand.nextDouble() * .1 + 0.00001);
+                itemFeatures.setEntry(i, j, rand.nextDouble() * range_offset);
             }
         }
 
@@ -93,7 +97,7 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         RealMatrix implicitFeatures = MatrixUtils.createRealMatrix(itemCount, featureCount);
         for (int i = 0; i < itemCount; i++) {
             for (int j = 0; j < featureCount; j++) {
-                implicitFeatures.setEntry(i, j, rand.nextDouble() * .1 + 0.00001);
+                implicitFeatures.setEntry(i, j, rand.nextDouble() * range_offset);
             }
         }
 
