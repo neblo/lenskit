@@ -100,8 +100,6 @@ public class SVDppRecommenderBuildTest {
         assertThat(pred, instanceOf(SimpleRatingPredictor.class));
         assertThat(((SimpleRatingPredictor) pred).getScorer(),
                    sameInstance(rec.getItemScorer()));
-        assertThat(((SVDppItemScorer) rec.getItemScorer()).getUpdateRule(),
-                   nullValue());
     }
 
 //    @Test
@@ -158,8 +156,5 @@ public class SVDppRecommenderBuildTest {
         LenskitRecommender rec = engine.createRecommender();
         ItemScorer scorer = rec.getItemScorer();
         assertThat(scorer, instanceOf(SVDppItemScorer.class));
-        SVDppItemScorer fsvd = (SVDppItemScorer) scorer;
-        assertThat(fsvd.getUpdateRule(),
-                   not(nullValue()));
     }
 }
