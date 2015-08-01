@@ -153,13 +153,6 @@ public class SVDppItemScorer extends AbstractItemScorer {
         SparseVector ratings = Ratings.userRatingVector(history);
         
         RealVector userFV = model.getUserVector(user);
-        if (userFV == null) {
-            if (ratings.isEmpty()) {
-                // no real work to do.
-                return;
-            }
-            userFV = model.getAverageUserVector();
-        }
 
         MutableSparseVector estimates = initialEstimates(user, ratings, scores.keyDomain());
         // propagate estimates to the output scores

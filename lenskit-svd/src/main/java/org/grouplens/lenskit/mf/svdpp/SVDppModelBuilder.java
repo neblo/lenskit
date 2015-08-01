@@ -127,8 +127,8 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         return new SVDppModel(userFeatures,
                               itemFeatures,
                               implicitFeatures,
-                              snapshot.userIndex(), snapshot.itemIndex(),
-                              featureInfo);
+                              snapshot.userIndex(),
+                              snapshot.itemIndex());
     }
 
 

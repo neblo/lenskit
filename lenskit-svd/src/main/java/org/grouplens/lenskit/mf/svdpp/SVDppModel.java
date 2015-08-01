@@ -43,45 +43,44 @@ import java.util.List;
 public final class SVDppModel extends MFModel {
     private static final long serialVersionUID = 3L;
 
-    private final List<FeatureInfo> featureInfo;
-    private final RealVector averageUser;
+//    private final List<FeatureInfo> featureInfo;
+//    private final RealVector averageUser;
 
     protected RealMatrix implicitFeedbackMatrix;
 
     public SVDppModel(RealMatrix umat, RealMatrix imat, RealMatrix nmat,
-                      IdIndexMapping uidx, IdIndexMapping iidx,
-                      List<FeatureInfo> features) {
+                      IdIndexMapping uidx, IdIndexMapping iidx) {
         super(umat, imat, uidx, iidx);
 
         implicitFeedbackMatrix = nmat;
 
-        featureInfo = ImmutableList.copyOf(features);
-
-        double[] means = new double[featureCount];
-        for (int f = featureCount - 1; f >= 0; f--) {
-            means[f] = featureInfo.get(f).getUserAverage();
-        }
-        averageUser = MatrixUtils.createRealVector(means);
+//        featureInfo = ImmutableList.copyOf(features);
+//
+//        double[] means = new double[featureCount];
+//        for (int f = featureCount - 1; f >= 0; f--) {
+//            means[f] = featureInfo.get(f).getUserAverage();
+//        }
+//        averageUser = MatrixUtils.createRealVector(means);
     }
 
-    /**
-     * Get the {@link FeatureInfo} for a particular feature.
-     * @param f The feature number.
-     * @return The feature's summary information.
-     */
-    public FeatureInfo getFeatureInfo(int f) {
-        return featureInfo.get(f);
-    }
+//    /**
+//     * Get the {@link FeatureInfo} for a particular feature.
+//     * @param f The feature number.
+//     * @return The feature's summary information.
+//     */
+//    public FeatureInfo getFeatureInfo(int f) {
+//        return featureInfo.get(f);
+//    }
+//
+//    /**
+//     * Get the metadata about all features.
+//     * @return The feature metadata.
+//     */
+//    public List<FeatureInfo> getFeatureInfo() {
+//        return featureInfo;
+//    }
 
-    /**
-     * Get the metadata about all features.
-     * @return The feature metadata.
-     */
-    public List<FeatureInfo> getFeatureInfo() {
-        return featureInfo;
-    }
-
-    public RealVector getAverageUserVector() { return averageUser; }
+//    public RealVector getAverageUserVector() { return averageUser; }
 
     @Nullable
     public RealVector getImplicitFeedbackVector(long item) {
