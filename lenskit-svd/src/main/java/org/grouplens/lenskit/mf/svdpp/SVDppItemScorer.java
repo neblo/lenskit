@@ -136,7 +136,7 @@ public class SVDppItemScorer extends AbstractItemScorer {
 
         MutableSparseVector estimates = initialEstimates(user, ratings, scores.keyDomain());
         // propagate estimates to the output scores
-        //scores.set(estimates);
+        scores.set(estimates);
 //        System.out.println("S2 " + scores.toString()); /////// DEBUG ///////////
 //        System.out.println("ES " + estimates.toString());
 
@@ -158,25 +158,24 @@ public class SVDppItemScorer extends AbstractItemScorer {
                     RealVector temp_vec;
                     for (VectorEntry s : scores) {
                         temp_vec = model.getImplicitFeedbackVector(s.getKey());
-                        if (temp_vec == null) { // TODO This is sometimes null.. shouldn't be i think. something is wrong.. not sure what.
-                            System.out.println("FUCK");
+                        if (temp_vec == null) {
                             scores.unset(s);
                         } else {
                             implicitFV.combineToSelf(1, 1, temp_vec);
                         }
                     }
                     implicitFV.mapMultiplyToSelf(Math.pow(ratings.size(), -0.5));
-                    implicitFV.combineToSelf(1, 1, userFV);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)
+                    implicitFV.combineToSelf(1, 1, userFV);  // (Pu + |N(u)|^-1/2 * SUM Yj)
                     //System.out.println("itemFV" + itemFV.toString()); //////// DEBUG ////////////
                     double user_item_profile = itemFV.dotProduct(implicitFV);
                     double estimate = estimates.get(item);  // base score estimate
                     double pred = estimate + user_item_profile;   // Calculate Prediction
 
                     //System.out.println("score " + score.getValue() + " pred " + pred); ////////// DEBUG ////////////
-                    // scores.set(score, pred);
+                    scores.set(score, pred);
                 }
             }
         }
-//        System.out.println(scores.toString());
+        //System.out.println("scores : " + scores.toString());
     }
 }
