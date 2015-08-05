@@ -110,7 +110,7 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // get ratings
         Collection<IndexedPreference> ratings = snapshot.getRatings();
 
-        int MAX_ITERATIONS = 10;
+        int MAX_ITERATIONS = 5;
 
         for (int i = 0; i < MAX_ITERATIONS; i++){
             StopWatch timer = new StopWatch();
