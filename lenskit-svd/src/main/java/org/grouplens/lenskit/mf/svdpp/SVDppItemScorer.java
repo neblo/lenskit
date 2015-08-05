@@ -99,7 +99,6 @@ public class SVDppItemScorer extends AbstractItemScorer {
 //        }
 
         featureCount = model.getFeatureCount();
-        System.out.println("INSIDE SVDPP ITEM SCORER");
     }
 
     /**
@@ -137,7 +136,7 @@ public class SVDppItemScorer extends AbstractItemScorer {
 
         MutableSparseVector estimates = initialEstimates(user, ratings, scores.keyDomain());
         // propagate estimates to the output scores
-        scores.set(estimates);
+        //scores.set(estimates);
 //        System.out.println("S2 " + scores.toString()); /////// DEBUG ///////////
 //        System.out.println("ES " + estimates.toString());
 
@@ -159,7 +158,7 @@ public class SVDppItemScorer extends AbstractItemScorer {
                     RealVector temp_vec;
                     for (VectorEntry s : scores) {
                         temp_vec = model.getImplicitFeedbackVector(s.getKey());
-                        if (temp_vec == null) { // TODO This is sometimes null.. shouldn't be. something is wrong.. not sure what.
+                        if (temp_vec == null) { // TODO This is sometimes null.. shouldn't be i think. something is wrong.. not sure what.
                             System.out.println("FUCK");
                             scores.unset(s);
                         } else {
@@ -174,9 +173,10 @@ public class SVDppItemScorer extends AbstractItemScorer {
                     double pred = estimate + user_item_profile;   // Calculate Prediction
 
                     //System.out.println("score " + score.getValue() + " pred " + pred); ////////// DEBUG ////////////
-                    scores.set(score, pred);
+                    // scores.set(score, pred);
                 }
             }
         }
+//        System.out.println(scores.toString());
     }
 }
