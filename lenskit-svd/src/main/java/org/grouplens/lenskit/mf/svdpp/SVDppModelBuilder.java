@@ -36,10 +36,7 @@ import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Provider;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 /**
  * SVD recommender builder using gradient descent.
@@ -113,7 +110,7 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // get ratings
         Collection<IndexedPreference> ratings = snapshot.getRatings();
 
-        int MAX_ITERATIONS = 125;
+        int MAX_ITERATIONS = 2;
 
         for (int i = 0; i < MAX_ITERATIONS; i++){
             StopWatch timer = new StopWatch();
@@ -130,6 +127,11 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
             timer.stop();
             System.out.println("Epoc  " + i + " in " + timer + " seconds");
         }
+        /////// DEBUG ///////////
+        System.out.println("User " + userFeatures.getRowVector(0).toString());
+        System.out.println("Item " + itemFeatures.getRowVector(0).toString());
+        System.out.println("Impl " + implicitFeatures.getRowVector(0).toString());
+        /////////////////////////
         // Wrap the user/item matrices because we won't use or modify them again
         return new SVDppModel(userFeatures,
                               itemFeatures,

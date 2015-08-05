@@ -99,6 +99,7 @@ public class SVDppItemScorer extends AbstractItemScorer {
 //        }
 
         featureCount = model.getFeatureCount();
+        System.out.println("INSIDE SVDPP ITEM SCORER");
     }
 
     /**
@@ -126,35 +127,55 @@ public class SVDppItemScorer extends AbstractItemScorer {
         SparseVector ratings = Ratings.userRatingVector(history);
         
         RealVector userFV = model.getUserVector(user);
-        assert userFV != null;
+        if (userFV == null){
+            if (ratings.isEmpty()){
+                return;
+            }
+            userFV = model.getAverageUserVector();
+        }
+//        System.out.println("S1 " + scores.toString()); /////// DEBUG ///////////
 
-        MutableSparseVector estimates = initialEstimates(user, ratings, scores.keySet());
+        MutableSparseVector estimates = initialEstimates(user, ratings, scores.keyDomain());
         // propagate estimates to the output scores
         scores.set(estimates);
+//        System.out.println("S2 " + scores.toString()); /////// DEBUG ///////////
+//        System.out.println("ES " + estimates.toString());
 
         if (!ratings.isEmpty()) {
 
             for (VectorEntry score : scores ){
                 final long item = score.getKey();
 
-                RealVector itemFV = model.getItemVector(item); // TODO score.getKey() gets item's key right (not position in vector)?
-                assert itemFV != null;
-                RealVector implicitFV = MatrixUtils.createRealVector(new double[featureCount]);
+                RealVector itemFV = model.getItemVector(item);
+                if (itemFV == null){
+                    // no item-vector, cannot make an informed prediction.
+                    // unset the baseline to note that we are not predicting this item.
+                    scores.unset(score);
+                } else {
 
-                // Calculate user-item profile ->  Qi o (Pu + |N(u)|^-1/2 * SUM Yj)
-                RealVector temp_vec;
-                for(VectorEntry ur : scores){
-                    temp_vec = model.getImplicitFeedbackVector(ur.getKey());
-                    implicitFV.combineToSelf(1, 1, temp_vec);
+                    RealVector implicitFV = MatrixUtils.createRealVector(new double[featureCount]);
+
+                    // Calculate user-item profile ->  Qi o (Pu + |N(u)|^-1/2 * SUM Yj)
+                    RealVector temp_vec;
+                    for (VectorEntry s : scores) {
+                        temp_vec = model.getImplicitFeedbackVector(s.getKey());
+                        if (temp_vec == null) { // TODO This is sometimes null.. shouldn't be. something is wrong.. not sure what.
+                            System.out.println("FUCK");
+                            scores.unset(s);
+                        } else {
+                            implicitFV.combineToSelf(1, 1, temp_vec);
+                        }
+                    }
+                    implicitFV.mapMultiplyToSelf(Math.pow(ratings.size(), -0.5));
+                    implicitFV.combineToSelf(1, 1, userFV);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)
+                    //System.out.println("itemFV" + itemFV.toString()); //////// DEBUG ////////////
+                    double user_item_profile = itemFV.dotProduct(implicitFV);
+                    double estimate = estimates.get(item);  // base score estimate
+                    double pred = estimate + user_item_profile;   // Calculate Prediction
+
+                    System.out.println("score " + score.getValue() + " pred " + pred); ////////// DEBUG ////////////
+                    scores.set(score, pred);
                 }
-                implicitFV.mapMultiplyToSelf(Math.pow(ratings.size(), -0.5));
-                implicitFV.add(userFV);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)
-
-                double user_item_profile = itemFV.dotProduct(implicitFV);
-                double estimate = estimates.get(item);  // base score estimate
-                double pred = estimate + user_item_profile;   // Calculate Prediction
-
-                scores.set(score, pred);
             }
         }
     }

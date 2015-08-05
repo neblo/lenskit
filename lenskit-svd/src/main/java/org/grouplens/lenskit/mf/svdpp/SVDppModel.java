@@ -44,7 +44,7 @@ public final class SVDppModel extends MFModel {
     private static final long serialVersionUID = 3L;
 
 //    private final List<FeatureInfo> featureInfo;
-//    private final RealVector averageUser;
+    private final RealVector averageUser;
 
     protected RealMatrix implicitFeedbackMatrix;
 
@@ -56,11 +56,11 @@ public final class SVDppModel extends MFModel {
 
 //        featureInfo = ImmutableList.copyOf(features);
 //
-//        double[] means = new double[featureCount];
-//        for (int f = featureCount - 1; f >= 0; f--) {
-//            means[f] = featureInfo.get(f).getUserAverage();
-//        }
-//        averageUser = MatrixUtils.createRealVector(means);
+        double[] means = new double[featureCount];
+        for (int f = featureCount - 1; f >= 0; f--) {
+            means[f] = 3; // TODO implement this correctly. 3 hard coded for now.
+        }
+        averageUser = MatrixUtils.createRealVector(means);
     }
 
 //    /**
@@ -80,7 +80,7 @@ public final class SVDppModel extends MFModel {
 //        return featureInfo;
 //    }
 
-//    public RealVector getAverageUserVector() { return averageUser; }
+    public RealVector getAverageUserVector() { return averageUser; }
 
     @Nullable
     public RealVector getImplicitFeedbackVector(long item) {
