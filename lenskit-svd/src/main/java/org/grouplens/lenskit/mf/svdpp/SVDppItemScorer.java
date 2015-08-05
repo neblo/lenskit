@@ -128,7 +128,7 @@ public class SVDppItemScorer extends AbstractItemScorer {
         RealVector userFV = model.getUserVector(user);
         assert userFV != null;
 
-        MutableSparseVector estimates = initialEstimates(user, ratings, scores.keyDomain());
+        MutableSparseVector estimates = initialEstimates(user, ratings, scores.keySet());
         // propagate estimates to the output scores
         scores.set(estimates);
 
@@ -142,8 +142,10 @@ public class SVDppItemScorer extends AbstractItemScorer {
                 RealVector implicitFV = MatrixUtils.createRealVector(new double[featureCount]);
 
                 // Calculate user-item profile ->  Qi o (Pu + |N(u)|^-1/2 * SUM Yj)
+                RealVector temp_vec;
                 for(VectorEntry ur : scores){
-                    implicitFV.combineToSelf(1, 1, model.getImplicitFeedbackVector(ur.getKey()));
+                    temp_vec = model.getImplicitFeedbackVector(ur.getKey());
+                    implicitFV.combineToSelf(1, 1, temp_vec);
                 }
                 implicitFV.mapMultiplyToSelf(Math.pow(ratings.size(), -0.5));
                 implicitFV.add(userFV);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)

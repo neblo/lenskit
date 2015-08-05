@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Provider;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -73,7 +74,7 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // setup userFeatures ( set random value from 0.00001 to ~0.1 )
         Random rand = new Random();
         double range_min = 0.0001;
-        double range_max = 1.0;
+        double range_max = 0.1;
         double range_offset = range_min + (range_max - range_min);
 
         int userCount = snapshot.getUserIds().size();
@@ -109,20 +110,26 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
         TrainingEstimator estimates = rule.makeEstimator(snapshot);
 
-        List<FeatureInfo> featureInfo = new ArrayList<FeatureInfo>(featureCount);
-
         // get ratings
         Collection<IndexedPreference> ratings = snapshot.getRatings();
 
-        int MAX_ITERATIONS = 30;
+        int MAX_ITERATIONS = 125;
 
         for (int i = 0; i < MAX_ITERATIONS; i++){
+            StopWatch timer = new StopWatch();
+            timer.start();
             // train model (one epoch)
             for (IndexedPreference r : ratings) {
                 trainRating(r, estimates, userFeatures, itemFeatures, implicitFeatures);
+                /////////// DEBUG //////////////
+//                System.out.println("   ########### i = " + i + " rating = " + r.getValue() + "  / " + userFeatures.getEntry(0,0));
+//                System.out.println("U " + userFeatures.getRowVector(0));
+                /////////////////////////////////
             }
+//            System.out.println("I[3] " + itemFeatures.getRowVector(3)); /// DEBUG ////
+            timer.stop();
+            System.out.println("Epoc  " + i + " in " + timer + " seconds");
         }
-
         // Wrap the user/item matrices because we won't use or modify them again
         return new SVDppModel(userFeatures,
                               itemFeatures,
@@ -157,16 +164,16 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         double reg_term = 0.015;
 
         // ratings for this user
-        Collection<IndexedPreference> user_ratings = snapshot.getUserRatings(uidx);
+        Collection<IndexedPreference> user_ratings = snapshot.getUserRatings(rating.getUserId());
 
         // Calculate user-item profile ->  Qi o (Pu + |N(u)|^-1/2 * SUM Yj)
-        for(IndexedPreference ur : user_ratings){
+        for (IndexedPreference ur : user_ratings) {
             // TODO No function that adds to self, so I could only use combineToSelf, is there a better way? or should I just make a custom func?
             implicitFeatureVector.combineToSelf(1, 1, implicitFeatures.getRowVector(ur.getItemIndex()));
         }
         implicitFeatureVector.mapMultiplyToSelf(Math.pow(user_ratings.size(), -0.5));
         implicitFeatureVector.combineToSelf(1, 1, userFeatureVector);  // user item profile - (Pu + |N(u)|^-1/2 * SUM Yj)
-        double user_item_profile = itemFeatureVector.dotProduct( implicitFeatureVector );
+        double user_item_profile = itemFeatureVector.dotProduct(implicitFeatureVector);
 
         double estimate = estimates.get(rating);         // base score estimate
         double pred = estimate + user_item_profile;      // Calculate Prediction
@@ -176,7 +183,10 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // compute delta in user vector : Pu <- Pu + learn_rate * (error * Qi - reg_term * Pu)
         RealVector uvec_deltas;
         uvec_deltas = itemFeatureVector.combine(error, -(reg_term), userFeatureVector);
+        RealVector debug2 = uvec_deltas;//DEBUG /////////////////////////////////////////////
         uvec_deltas.mapMultiplyToSelf(learn_rate);
+        RealVector debug3 = uvec_deltas;//DEBUG /////////////////////////////////////////////
+
 
         // compute delta in item vector : Qi <- Qi + learn_rate * (error * (Pu + |N(u)|^-1/2 * SUM Yj) - reg_term * Qi)
         RealVector ivec_deltas;
@@ -196,6 +206,33 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
 
         // apply deltas
         userFeatures.setRowVector(uidx, uvec_deltas.combineToSelf(1, 1, userFeatureVector));
+        //// DEBUG ////
+        if (!(userFeatures.getRowVector(uidx).getEntry(1) < 1 && userFeatures.getRowVector(uidx).getEntry(1) > -1)){ ////// DEBUG
+            System.out.println("----- DEBUG -----\nUser_Item_profile : " + user_item_profile + "\nEstimate : " + estimate  + "\nPrediction : " + pred + "\nrating_value : " + rating_value + "\nerror : " + error);
+            System.out.println("2 : " + debug2);
+            System.out.println("3 : " + debug3);
+            System.out.println("User Ratings : " + user_ratings.toString());
+            System.out.println("Final " + userFeatures.getRowVector(uidx));
+            System.out.println("Item FV " + itemFeatureVector);
+            System.out.println("User FV " + userFeatureVector);
+            try {
+                int x = System.in.read();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        ///////////////
         itemFeatures.setRowVector(iidx, ivec_deltas.combineToSelf(1, 1, itemFeatureVector));
+        ////// DEBUG /////
+//        if (!(itemFeatures.getRowVector(iidx).getEntry(1) < 1 && itemFeatures.getRowVector(iidx).getEntry(0) > -1 )){ ////// DEBUG
+//            System.out.println(itemFeatures.getRowVector(iidx));
+//            try {
+//                int x = System.in.read();
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//
+//        }
+        //////////////////
     }
 }
