@@ -110,7 +110,7 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // get ratings
         Collection<IndexedPreference> ratings = snapshot.getRatings();
 
-        int MAX_ITERATIONS = 2;
+        int MAX_ITERATIONS = 40;
 
         for (int i = 0; i < MAX_ITERATIONS; i++){
             StopWatch timer = new StopWatch();
@@ -128,9 +128,9 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
             System.out.println("Epoc  " + i + " in " + timer + " seconds");
         }
         /////// DEBUG ///////////
-        System.out.println("User " + userFeatures.getRowVector(0).toString());
-        System.out.println("Item " + itemFeatures.getRowVector(0).toString());
-        System.out.println("Impl " + implicitFeatures.getRowVector(0).toString());
+//        System.out.println("User " + userFeatures.getRowVector(0).toString());
+//        System.out.println("Item " + itemFeatures.getRowVector(0).toString());
+//        System.out.println("Impl " + implicitFeatures.getRowVector(0).toString());
         /////////////////////////
         // Wrap the user/item matrices because we won't use or modify them again
         return new SVDppModel(userFeatures,
@@ -209,20 +209,20 @@ public class SVDppModelBuilder implements Provider<SVDppModel> {
         // apply deltas
         userFeatures.setRowVector(uidx, uvec_deltas.combineToSelf(1, 1, userFeatureVector));
         //// DEBUG ////
-        if (!(userFeatures.getRowVector(uidx).getEntry(1) < 1 && userFeatures.getRowVector(uidx).getEntry(1) > -1)){ ////// DEBUG
-            System.out.println("----- DEBUG -----\nUser_Item_profile : " + user_item_profile + "\nEstimate : " + estimate  + "\nPrediction : " + pred + "\nrating_value : " + rating_value + "\nerror : " + error);
-            System.out.println("2 : " + debug2);
-            System.out.println("3 : " + debug3);
-            System.out.println("User Ratings : " + user_ratings.toString());
-            System.out.println("Final " + userFeatures.getRowVector(uidx));
-            System.out.println("Item FV " + itemFeatureVector);
-            System.out.println("User FV " + userFeatureVector);
-            try {
-                int x = System.in.read();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
+//        if (!(userFeatures.getRowVector(uidx).getEntry(1) < 1 && userFeatures.getRowVector(uidx).getEntry(1) > -1)){ ////// DEBUG
+//            System.out.println("----- DEBUG -----\nUser_Item_profile : " + user_item_profile + "\nEstimate : " + estimate  + "\nPrediction : " + pred + "\nrating_value : " + rating_value + "\nerror : " + error);
+//            System.out.println("2 : " + debug2);
+//            System.out.println("3 : " + debug3);
+//            System.out.println("User Ratings : " + user_ratings.toString());
+//            System.out.println("Final " + userFeatures.getRowVector(uidx));
+//            System.out.println("Item FV " + itemFeatureVector);
+//            System.out.println("User FV " + userFeatureVector);
+//            try {
+//                int x = System.in.read();
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//        }
         ///////////////
         itemFeatures.setRowVector(iidx, ivec_deltas.combineToSelf(1, 1, itemFeatureVector));
         ////// DEBUG /////

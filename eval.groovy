@@ -30,15 +30,15 @@ trainTest {
 //        }
 //    }
 
-    algorithm("FunkSVD") {
-        bind ItemScorer to FunkSVDItemScorer
-        bind UserVectorNormalizer to BaselineSubtractingUserVectorNormalizer
-        bind (BaselineScorer, ItemScorer) to UserMeanItemScorer
-        bind (UserMeanBaseline, ItemScorer) to ItemMeanRatingItemScorer
-        set FeatureCount to 40
-        set LearningRate to 0.002
-        set IterationCount to 125
-    }
+//    algorithm("FunkSVD") {
+//        bind ItemScorer to FunkSVDItemScorer
+//        bind UserVectorNormalizer to BaselineSubtractingUserVectorNormalizer
+//        bind (BaselineScorer, ItemScorer) to UserMeanItemScorer
+//        bind (UserMeanBaseline, ItemScorer) to ItemMeanRatingItemScorer
+//        set FeatureCount to 40
+//        set LearningRate to 0.002
+//        set IterationCount to 125
+//    }
 
     algorithm("SVDpp") {
         bind ItemScorer to SVDppItemScorer

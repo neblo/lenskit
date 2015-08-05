@@ -173,7 +173,7 @@ public class SVDppItemScorer extends AbstractItemScorer {
                     double estimate = estimates.get(item);  // base score estimate
                     double pred = estimate + user_item_profile;   // Calculate Prediction
 
-                    System.out.println("score " + score.getValue() + " pred " + pred); ////////// DEBUG ////////////
+                    //System.out.println("score " + score.getValue() + " pred " + pred); ////////// DEBUG ////////////
                     scores.set(score, pred);
                 }
             }
